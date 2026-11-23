@@ -1,146 +1,176 @@
 # High-Throughput REST API & Scalability Platform
 
-A backend engineering project focused on building and benchmarking a REST API with Node.js, Fastify, PostgreSQL, and Redis. The project explores how database access patterns, asynchronous request handling, and caching affect API throughput and latency.
+A backend engineering project demonstrating REST API development, PostgreSQL query handling, Redis caching, and repeatable load testing using Node.js and Fastify.
 
-## Overview
+## What this project demonstrates
 
-The platform was developed to study performance bottlenecks in a backend service and compare progressively optimized request-handling approaches.
+- Building REST endpoints with Fastify.
+- Using PostgreSQL connection pooling for persistent data.
+- Applying Redis TTL caching to frequently requested product and category data.
+- Comparing three application modes: baseline, async query execution, and optimized caching.
+- Measuring endpoint performance with Autocannon and mixed traffic with k6.
+- Running the application and its dependencies with Docker Compose.
 
-The benchmark server supports three modes:
+## Technology stack
 
-- **Baseline** — direct database-backed request handling.
-- **Async** — asynchronous request-handling improvements.
-- **Optimized** — Redis caching alongside PostgreSQL to reduce repeated database reads.
-
-> The exact behavior of each mode should be verified against the implementation in `server.js` before extending this description.
-
-## Tech Stack
-
-| Technology | Purpose |
+| Technology | Role |
 |---|---|
-| Node.js | JavaScript runtime |
-| Fastify | HTTP server and REST API framework |
-| PostgreSQL | Persistent relational database |
-| Redis | In-memory caching |
-| Docker | Containerization / local infrastructure |
-| Autocannon | HTTP benchmarking |
+| Node.js | Runtime |
+| Fastify | HTTP API framework |
+| PostgreSQL | Relational database |
+| Redis | In-memory cache |
+| Docker Compose | Local multi-service environment |
+| Autocannon | Focused HTTP benchmarking |
 | k6 | Scenario-based load testing |
 
 ## Architecture
 
 ```text
-                 Clients / Load Generators
-                    (Autocannon, k6)
-                            |
-                            v
-                    Fastify REST API
-                            |
-                 +----------+----------+
-                 |                     |
-                 v                     v
-             Redis Cache          PostgreSQL
-          (optimized mode)       (persistent data)
+                Autocannon / k6
+                       |
+                       v
+                 Fastify REST API
+                  /           \
+                 v             v
+           Redis cache      PostgreSQL
+           (optimized)      connection pool
+                                |
+                                v
+                          Products / Categories
 ```
 
-In the optimized path, Redis can serve frequently requested data and reduce repeated database reads. PostgreSQL remains the persistent data store.
+In optimized mode, product lookups and category lists check Redis first and use PostgreSQL on a cache miss. Cache entries use a configurable TTL. If Redis is unavailable, the API falls back to PostgreSQL so the service can still respond.
 
-## Benchmarking
+## Application modes
 
-The project uses two tools for performance evaluation:
+Set `MODE` in `.env` before starting the API.
 
-- **Autocannon** for focused endpoint benchmarks with configurable connection counts and test duration.
-- **k6** for mixed-traffic load tests that simulate a more realistic request distribution.
+| Mode | Behavior |
+|---|---|
+| `baseline` | Direct PostgreSQL reads; report queries execute sequentially |
+| `async` | Direct PostgreSQL reads; independent report queries execute concurrently |
+| `optimized` | Async report queries plus Redis caching for product and category reads |
 
-The mixed k6 workload used these traffic proportions:
+These modes are intended as an educational comparison, not a claim that one setting is universally faster. Benchmark them under the same workload and environment.
 
-| Request category | Traffic share |
-|---|---:|
-| Item lookups | 70% |
-| Category lists | 20% |
-| CPU-heavy reports | 10% |
+## API endpoints
 
-### Recorded test observations
+| Method | Endpoint | Description |
+|---|---|---|
+| GET | `/health` | Application and dependency health |
+| GET | `/products/:id` | Retrieve a product |
+| GET | `/categories` | List categories and product counts |
+| GET | `/reports/summary` | Aggregate product and category statistics |
 
-The following figures are historical results from development runs, not guaranteed performance targets. Results depend on hardware, database state, cache warm-up, concurrency, and test duration.
+See [API documentation](docs/API.md).
 
-| Measurement | Recorded result |
-|---|---:|
-| One Autocannon run | ~40,295 requests/second |
-| Total requests in that run | 604,409 |
-| Errors in that run | 0 |
-| One k6 run | 2,174,240 successful checks |
-| Check success rate in that run | 100% |
-| Average HTTP request duration in that run | ~671.36 µs |
-
-**Important:** k6 checks are assertions executed by the test script; they are not the same as HTTP requests per second. The k6 check count should not be described as throughput.
-
-To reproduce and compare results, use the benchmark scripts and record the mode, endpoint, connection/VU count, duration, machine specifications, and whether Redis was warm or cold.
-
-## Project Structure
-
-The repository is expected to contain the application and benchmark scripts, for example:
+## Project structure
 
 ```text
 .
-├── server.js       # Fastify API and database/cache integration
-├── bench.js        # Autocannon endpoint benchmark
-├── load.js         # k6 mixed-traffic load test
-├── package.json
+├── db/
+│   └── init.sql
+├── docs/
+│   ├── API.md
+│   └── BENCHMARKING.md
+├── scripts/
+│   └── init-db.js
 ├── .env.example
+├── .gitignore
+├── Dockerfile
 ├── docker-compose.yml
-└── README.md
+├── package.json
+├── server.js
+├── bench.js
+└── load.js
 ```
 
-Adjust this tree to match the actual files committed to the repository.
+## Run with Docker Compose
 
-## Getting Started
-
-The application source and its dependency scripts need to be present in this repository before these steps can be run.
-
-1. Install Node.js (LTS), PostgreSQL, and Redis, or start the infrastructure with the project's Docker Compose configuration.
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
-
-3. Create a local `.env` file using the variables documented in `.env.example`.
-4. Create and initialize the PostgreSQL database using the schema or setup scripts included with the project.
-5. Start the API using the start script defined in `package.json`.
-
-Do not commit real credentials, API keys, or production connection strings. Keep `.env` out of version control.
-
-## Running Benchmarks
-
-Use the scripts and arguments defined in the checked-in implementation. The previously used Autocannon command format was:
+Docker Compose starts PostgreSQL, Redis, and the API. The database schema and sample data are initialized on the first database volume creation.
 
 ```bash
-node bench.js <label> <product|category|report> [connections=100] [seconds=15]
+docker compose up --build
 ```
 
-The k6 script was used for a mixed workload with a default of 100 virtual users and a two-minute duration. Confirm the current script defaults before running:
+API base URL: `http://localhost:5000`
+
+Check health:
+
+```bash
+curl http://localhost:5000/health
+```
+
+To change the mode, set it when launching Compose, for example:
+
+```bash
+MODE=baseline docker compose up --build
+```
+
+To stop services:
+
+```bash
+docker compose down
+```
+
+To also remove the local database volume and its data:
+
+```bash
+docker compose down -v
+```
+
+## Run locally
+
+Requirements: Node.js 20+, PostgreSQL, and Redis.
+
+```bash
+npm install
+cp .env.example .env
+```
+
+Update `DATABASE_URL` and `REDIS_URL` in `.env`, then initialize the database:
+
+```bash
+npm run db:init
+npm start
+```
+
+## Benchmarking
+
+Autocannon benchmark command:
+
+```bash
+node bench.js <label> <product|category|report|health> [connections=100] [seconds=15]
+```
+
+Examples:
+
+```bash
+node bench.js baseline product 100 15
+node bench.js optimized product 100 15
+node bench.js optimized report 100 15
+```
+
+Mixed workload with k6:
 
 ```bash
 k6 run load.js
 ```
 
-## Engineering Focus
+The k6 script uses a 70% product lookup, 20% category list, and 10% report traffic mix. Configure virtual users and duration with `VUS` and `DURATION`, and the target with `BASE_URL`.
 
-- Measuring throughput and latency under concurrent load.
-- Identifying database and CPU-related bottlenecks.
-- Understanding connection-pool pressure and repeated database reads.
-- Evaluating Redis caching for read-heavy workloads.
-- Comparing baseline and optimized request paths with repeatable load tests.
+Read [the benchmarking guide](docs/BENCHMARKING.md) before comparing results. Keep hardware, data volume, concurrency, duration, and cache warm-up consistent. Report requests/second, latency percentiles, errors, and non-2xx responses. A k6 check count is not requests/second.
 
-## Future Improvements
+## Performance notes
 
-- Add endpoint-level benchmark tables with environment details.
-- Add automated tests and CI checks.
-- Add cache invalidation and TTL behavior documentation.
-- Add request validation, structured logging, and health checks.
-- Add Docker Compose instructions and reproducible database initialization.
-- Track p50, p95, and p99 latency alongside throughput and error rate.
+Historical development measurements discussed during project planning included an Autocannon run around 40,295 requests/second and a k6 run with 2,174,240 successful checks. These are **historical, environment-specific observations**, not verified results from the code currently published here. Re-run the included benchmark scripts on your machine before presenting performance claims in a resume or interview.
+
+## Security and configuration
+
+- Never commit a real `.env` file or credentials.
+- The included sample credentials are for local development only.
+- Add authentication, authorization, request rate limiting, and production secrets management before exposing this sample service publicly.
 
 ## License
 
-Choose and add a license before distributing or reusing this project.
+No license has been selected yet. Add a license file if you intend to permit reuse or distribution.
