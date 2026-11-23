@@ -124,13 +124,13 @@ app.get('/categories', async () => {
 });
 
 app.get('/reports/summary', async () => {
-  const totalsQuery = pool.query(
+  const fetchTotals = () => pool.query(
     `SELECT COUNT(*)::int AS total_products,
             COALESCE(AVG(price), 0)::numeric(12,2) AS average_price,
             COALESCE(SUM(price), 0)::numeric(14,2) AS inventory_value
      FROM products`
   );
-  const categoriesQuery = pool.query(
+  const fetchCategories = () => pool.query(
     `SELECT c.name, COUNT(p.id)::int AS product_count
      FROM categories c
      LEFT JOIN products p ON p.category_id = c.id
@@ -138,15 +138,13 @@ app.get('/reports/summary', async () => {
      ORDER BY product_count DESC, c.name`
   );
 
-  // The async and optimized modes issue independent report queries concurrently.
-  // Baseline runs them sequentially to provide a simple comparison point.
   let totals;
   let categories;
   if (MODE === 'baseline') {
-    totals = await totalsQuery;
-    categories = await categoriesQuery;
+    totals = await fetchTotals();
+    categories = await fetchCategories();
   } else {
-    [totals, categories] = await Promise.all([totalsQuery, categoriesQuery]);
+    [totals, categories] = await Promise.all([fetchTotals(), fetchCategories()]);
   }
 
   return {
